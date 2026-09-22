@@ -1,0 +1,138 @@
+Project dataset inspection & preparation — detailed summary
+
+Location: dataset_tools/ and Dataset/Dataset/
+
+Date: 2026-08-19
+
+Purpose
+-------
+Provide a complete record of the dataset inspection and the dataset preparation utilities I added to this repository, plus observed counts, actions taken, and recommended next steps so you can continue work locally.
+
+What I inspected
+-----------------
+- VoTT export CSV: Dataset/Dataset/vott-export.csv (CSV header and values read)
+- Image folder scanned: Dataset/Dataset (images found on disk)
+
+Key findings
+------------
+- Total annotation rows (CSV): 226
+- Unique annotated images referenced in CSV: 210
+- Image files found on disk under Dataset/Dataset: 237
+- Annotation format: VoTT CSV with header columns `image,xmin,ymin,xmax,ymax,label`. Bounding boxes use absolute pixel coordinates.
+- Detected classes: single class named `plate` (1 class)
+- Image dimensions sampling: I attempted to collect frequent image sizes via PowerShell, but a complex one-liner failed in this environment; scripts are provided to collect sizes locally.
+
+Scripts and files added
+-----------------------
+All new files are under dataset_tools/ and a lightweight dataset skeleton under dataset/.
+
+1- dataset_tools/inspect_dataset.py
+   - Reads a VoTT CSV and the images directory, reports:
+     - total annotations
+     - unique image count
+     - classes and per-class counts
+     - missing images referenced by the CSV
+     - per-image dimensions (uses Pillow)
+   - Usage example:
+     python dataset_tools/inspect_dataset.py --csv Dataset/Dataset/vott-export.csv --images Dataset/Dataset --out dataset/summary.json
+
+2- dataset_tools/validate_annotations.py
+   - Validates each CSV row:
+     - image file exists and is openable
+     - bbox sanity (xmin < xmax, ymin < ymax)
+     - bbox within image bounds
+   - Writes an optional report CSV/list of errors.
+   - Usage:
+     python dataset_tools/validate_annotations.py --csv Dataset/Dataset/vott-export.csv --images Dataset/Dataset --out dataset/annotations_report.csv
+
+3- dataset_tools/remove_corrupt.py
+   - Walks the images dir, tries to open each image and `verify()` it with Pillow.
+   - Moves corrupt/unopenable images to a target folder (default `dataset/corrupt`).
+   - Usage:
+     python dataset_tools/remove_corrupt.py --images Dataset/Dataset --out dataset/corrupt
+
+4- dataset_tools/detect_duplicates.py
+   - Two strategies:
+     - MD5 byte-hash groups (works without extra deps)
+     - Optional perceptual hash (pHash via `imagehash`) when `--use-phash` is enabled and the package installed.
+   - Prints groups of files that are likely duplicates.
+   - Usage:
+     python dataset_tools/detect_duplicates.py --images Dataset/Dataset --use-phash
+
+5- dataset_tools/stats.py
+   - Computes per-class counts and simple bbox-area statistics (min/median/max).
+   - Usage:
+     python dataset_tools/stats.py --csv Dataset/Dataset/vott-export.csv
+
+6- dataset_tools/split_dataset.py
+   - Splits dataset images (by-image) into train/val/test sets using configurable ratios.
+   - Copies image files into `dataset/images/{train,val,test}` and writes per-split CSVs into `dataset/annotations/{train,val,test}/{split}.csv`.
+   - Note: it currently preserves VoTT CSV rows as CSV annotations. If you prefer YOLO TXT format (one label file per image), I can add conversion.
+   - Usage example:
+     python dataset_tools/split_dataset.py --csv Dataset/Dataset/vott-export.csv --images Dataset/Dataset --out dataset --train 0.8 --val 0.1 --test 0.1
+
+7- dataset_tools/generate_data_yaml.py
+   - Reads the CSV to collect class names and writes a small YAML manifest (default `dataset/data.yaml`) with keys: `train`, `val`, `test`, `nc`, `names`.
+   - Usage:
+     python dataset_tools/generate_data_yaml.py --csv Dataset/Dataset/vott-export.csv --out dataset/data.yaml
+
+8- dataset_tools/README.md and dataset/ skeleton directories
+   - Short README describing scripts and their purpose.
+   - Created skeleton directories:
+       dataset/images/train
+       dataset/images/val
+       dataset/images/test
+       dataset/annotations
+
+Actions run in this environment and results
+------------------------------------------
+- I successfully read the CSV file programmatically to inspect contents.
+- PowerShell commands executed here:
+  - Count total annotation rows:
+    Output: 226
+  - Count unique images referenced in CSV:
+    Output: 210
+  - List unique label names:
+    Output: plate
+  - Count image files under Dataset/Dataset (recurse):
+    Output: 237
+- I attempted to run the Python `inspect_dataset.py` script here, but the environment reported: `Python was not found` (so scripts could not be executed inside this environment). This is why some data (like full image dimensions summary) is not present in the repository — the scripts are present so you can run them locally.
+
+Known issues & caveats
+----------------------
+- Python is not available in this execution environment. Install Python 3.8+ locally and the required packages to use the scripts.
+- The VoTT CSV uses absolute pixel coordinates. Most object-detection training pipelines (e.g., YOLO) use normalized center-based coordinates; conversion will be required before training.
+- There is only one class `plate`, so `nc` in `data.yaml` will be 1.
+- Duplicate detection using pHash requires `imagehash` and `numpy`.
+- The split implementation copies images; for very large datasets you may prefer to write split index files or use symlinks instead.
+
+Recommended next steps (I can implement any of these)
+---------------------------------------------------
+1- Install Python and run the provided scripts locally to gather a complete summary (image sizes, missing files list, corrupt list, duplicate groups). Commands:
+
+```powershell
+python -m pip install --upgrade pip
+pip install pillow pyyaml
+# optional for perceptual duplicate detection
+pip install imagehash numpy
+```
+
+Then run:
+
+```powershell
+python dataset_tools/inspect_dataset.py --csv Dataset/Dataset/vott-export.csv --images Dataset/Dataset --out dataset/summary.json
+python dataset_tools/validate_annotations.py --csv Dataset/Dataset/vott-export.csv --images Dataset/Dataset --out dataset/annotations_report.csv
+python dataset_tools/remove_corrupt.py --images Dataset/Dataset --out dataset/corrupt
+python dataset_tools/detect_duplicates.py --images Dataset/Dataset --use-phash
+python dataset_tools/stats.py --csv Dataset/Dataset/vott-export.csv
+python dataset_tools/split_dataset.py --csv Dataset/Dataset/vott-export.csv --images Dataset/Dataset --out dataset --train 0.8 --val 0.1 --test 0.1
+python dataset_tools/generate_data_yaml.py --csv Dataset/Dataset/vott-export.csv --out dataset/data.yaml
+```
+
+2- Convert CSV annotations to YOLO TXT format during splitting (I can add `--to-yolo` option in `split_dataset.py`).
+3- Optionally produce COCO JSON export (if you prefer COCO format) and an optional visualizer to preview boxes.
+4- If you want me to automatically remove duplicates or recommend removals, I can produce a CSV with duplicate groups and a suggested canonical file per group.
+
+If you want me to proceed now, tell me which of the next steps to implement: a) add YOLO conversion, b) add COCO export, c) run the scripts here after you install Python, or d) produce duplicate-removal plan.
+
+-- End of summary
