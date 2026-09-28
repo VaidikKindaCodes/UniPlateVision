@@ -134,3 +134,4 @@ __pycache__/
 *.pyc
 .env
 .env.*
+*.cache
